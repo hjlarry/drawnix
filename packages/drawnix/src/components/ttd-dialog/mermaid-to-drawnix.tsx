@@ -1,4 +1,4 @@
-import { useState, useEffect, useDeferredValue } from 'react';
+import { useState, useEffect, useDeferredValue, KeyboardEvent } from 'react';
 import './mermaid-to-drawnix.scss';
 import './ttd-dialog.scss';
 import { TTDDialogPanels } from './ttd-dialog-panels';
@@ -63,6 +63,8 @@ const MermaidToDrawnix = () => {
   const deferredText = useDeferredValue(text.trim());
   const [error, setError] = useState<Error | null>(null);
   const board = useBoard();
+  const [prompt, setPrompt] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const convertMermaid = async () => {
@@ -85,6 +87,54 @@ const MermaidToDrawnix = () => {
     };
     convertMermaid();
   }, [deferredText, mermaidToDrawnixLib]);
+
+  const handlePromptSubmit = async () => {
+    if (!prompt || isLoading) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('llm/invoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'mermaid', prompt: prompt }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data && data.result) {
+        let resultText = data.result;
+        resultText = resultText
+          .replace(/^```mermaid\s*\n/, '')
+          .replace(/\n```$/, '')
+          .trim();
+        setText(resultText);
+        setPrompt('');
+      } else {
+        throw new Error('Invalid response format from API');
+      }
+    } catch (error) {
+      console.error('API call failed', error);
+      if (error instanceof Error) {
+        setError(new Error(`通过AI生成Mermaid失败: ${error.message}`));
+      } else {
+        setError(new Error('通过AI生成Mermaid失败: 发生未知错误'));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handlePromptSubmit();
+    }
+  };
 
   const insertToBoard = () => {
     if (!value.length) {
@@ -161,6 +211,39 @@ const MermaidToDrawnix = () => {
               insertToBoard();
             }}
           />
+          <div
+            className="prompt-container"
+            style={{ marginTop: '10px', display: 'flex', gap: '8px' }}
+          >
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="输入提示词生成 Mermaid..."
+              disabled={isLoading}
+              onKeyDown={handleKeyDown}
+              style={{
+                flexGrow: 1,
+                padding: '8px',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+              }}
+            />
+            <button
+              onClick={handlePromptSubmit}
+              disabled={isLoading}
+              style={{
+                padding: '0 16px',
+                border: 'none',
+                borderRadius: '4px',
+                backgroundColor: isLoading ? '#ccc' : '#4a90e2',
+                color: 'white',
+                cursor: 'pointer',
+              }}
+            >
+              {isLoading ? '生成中...' : '生成'}
+            </button>
+          </div>
         </TTDDialogPanel>
         <TTDDialogPanel
           label={'预览'}
